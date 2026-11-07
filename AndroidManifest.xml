@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.buddyapps.homeremote">
+  <uses-permission android:name="android.permission.TRANSMIT_IR"/>
+  <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+  <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+  <queries><package android:name="com.google.android.apps.youtube.music"/><package android:name="app.revanced.android.youtube"/><package android:name="com.google.android.youtube"/><package android:name="com.amazon.mp3"/><package android:name="com.spotify.music"/></queries>
+  <uses-feature android:name="android.hardware.consumerir" android:required="false"/>
+  <application android:label="Home Remote" android:icon="@android:drawable/sym_def_app_icon" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+    <activity android:name=".MainActivity" android:exported="true">
+      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+    </activity>
+    <activity android:name=".TvActivity" android:exported="false"/>
+    <activity android:name=".SpeakerActivity" android:exported="false"/>
+    <receiver android:name=".OffReceiver" android:exported="false"/>
+    <service android:name=".PowerTile" android:label="AC" android:icon="@android:drawable/ic_lock_power_off"
+        android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true">
+      <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE"/></intent-filter>
+    </service>
+  </application>
+</manifest>
