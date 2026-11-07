@@ -145,7 +145,10 @@ public class TvActivity extends BaseActivity {
         int set = c.getSharedPreferences("tv", MODE_PRIVATE).getInt("set", 0);
         int cmd = CODES.get(name)[set];
         if (cmd < 0) return false;
-        ir.transmit(Nec.FREQ, set == 0 ? Nec.pattern(0x04, 0xFB, cmd) : Nec.pattern(0x00, 0xBF, cmd));
+        int[] p = set == 0 ? Nec.pattern(0x04, 0xFB, cmd) : Nec.pattern(0x00, 0xBF, cmd);
+        // Power is a toggle: the trailing repeat burst made it switch on and straight back off
+        if (name.equals("Power")) p = java.util.Arrays.copyOf(p, p.length - 4);
+        ir.transmit(Nec.FREQ, p);
         return true;
     }
 

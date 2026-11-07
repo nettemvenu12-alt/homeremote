@@ -77,6 +77,10 @@ public class SpeakerActivity extends BaseActivity {
         root.addView(row(btn("Vol −", () -> vol(AudioManager.ADJUST_LOWER)), btn("Mute", () -> vol(AudioManager.ADJUST_TOGGLE_MUTE)),
                          btn("Vol +", () -> vol(AudioManager.ADJUST_RAISE))));
 
+        // shortcut: no published IR codes for the Juke Bar 3900, so try common NEC soundbar power codes; add the real one if found elsewhere
+        root.addView(label("Speaker power (IR – point phone at the speaker)"));
+        root.addView(row(btn("⏻ Speaker Power", this::speakerPower), btn("🔍 Find power code", () -> findCode(0))));
+
         // When the soundbar is fed by the TV (BT/AUX/HDMI-ARC) its level follows the TV, so send TV volume over IR.
         root.addView(label("Speaker on TV – point phone at the TV"));
         root.addView(row(hold("TV Vol −", () -> tvKey("Vol-")), btn("TV Mute", () -> tvKey("Mute")), hold("TV Vol +", () -> tvKey("Vol+"))));
@@ -280,6 +284,39 @@ public class SpeakerActivity extends BaseActivity {
     void tvSoundMenu() {
         String[] seq = {"Menu", "Down", "Ok"};
         for (int i = 0; i < seq.length; i++) { String k = seq[i]; holdHandler.postDelayed(() -> tvKey(k), i * 1200L); }
+    }
+
+    // {address byte, address byte 2, command}: common power codes of NEC soundbar / mini-system remotes (TV address 0x04 excluded)
+    static final int[][] POWER_CODES = {
+        {0x00, 0xFF, 0x45}, {0x00, 0xFF, 0x40}, {0x00, 0xFF, 0x46}, {0x00, 0xFF, 0x0D}, {0x00, 0xFF, 0x12}, {0x00, 0xFF, 0x1C},
+        {0x00, 0xFF, 0x15}, {0x00, 0xFF, 0x47}, {0x00, 0xFF, 0x48}, {0x00, 0xFF, 0x01}, {0x00, 0xFF, 0x02}, {0x00, 0xFF, 0x0A},
+        {0x80, 0x7F, 0x45}, {0x80, 0x7F, 0x12}, {0x80, 0x7F, 0x0A}, {0x80, 0x7F, 0x1E}, {0x01, 0xFE, 0x45}, {0x01, 0xFE, 0x12},
+        {0x02, 0xFD, 0x45}, {0x02, 0xFD, 0x12}, {0x40, 0xBF, 0x12}, {0x40, 0xBF, 0x45}, {0x00, 0xEF, 0x03}, {0x00, 0xEF, 0x40},
+    };
+
+    boolean sendCode(int[] c) {
+        android.hardware.ConsumerIrManager ir = (android.hardware.ConsumerIrManager) getSystemService(CONSUMER_IR_SERVICE);
+        if (ir == null || !ir.hasIrEmitter()) return false;
+        int[] p = Nec.pattern(c[0], c[1], c[2]);
+        ir.transmit(Nec.FREQ, java.util.Arrays.copyOf(p, p.length - 4)); // power toggles: no repeat burst
+        return true;
+    }
+
+    void speakerPower() {
+        int i = prefs.getInt("powerCode", -1);
+        if (i < 0) { status.setText("Power code not found yet – tap 🔍 Find power code"); return; }
+        status.setText(sendCode(POWER_CODES[i]) ? "Sent speaker power ✓" : "No IR emitter");
+    }
+
+    /** Sends one candidate, then asks whether the speaker reacted. */
+    void findCode(int i) {
+        if (i >= POWER_CODES.length) { status.setText("No common code worked – the Juke Bar uses its own code"); return; }
+        sendCode(POWER_CODES[i]);
+        new android.app.AlertDialog.Builder(this).setTitle("Code " + (i + 1) + " / " + POWER_CODES.length)
+                .setMessage("Speaker turned on/off?").setCancelable(false)
+                .setPositiveButton("Worked ✓", (d, w) -> { prefs.edit().putInt("powerCode", i).apply(); status.setText("Saved power code " + (i + 1) + " ✓"); })
+                .setNeutralButton("Try again", (d, w) -> findCode(i))
+                .setNegativeButton("Next ▶", (d, w) -> findCode(i + 1)).show();
     }
 
     void tvKey(String k) { status.setText(TvActivity.send(this, k) ? "Sent TV " + k + " ✓" : "No IR emitter"); }
