@@ -79,7 +79,8 @@ public class SpeakerActivity extends BaseActivity {
 
         // shortcut: no published IR codes for the Juke Bar 3900, so try common NEC soundbar power codes; add the real one if found elsewhere
         root.addView(label("Speaker power (IR – point phone at the speaker)"));
-        root.addView(row(btn("⏻ Speaker Power", this::speakerPower), btn("🔍 Find power code", () -> findCode(0))));
+        root.addView(row(btn("⏻ Speaker Power", this::speakerPower), btn("🔍 Quick find", () -> findCode(POWER_CODES, 0))));
+        root.addView(row(btn("🔎 Auto-scan all codes (~10 min)", () -> autoScan(0))));
 
         // When the soundbar is fed by the TV (BT/AUX/HDMI-ARC) its level follows the TV, so send TV volume over IR.
         root.addView(label("Speaker on TV – point phone at the TV"));
@@ -302,21 +303,52 @@ public class SpeakerActivity extends BaseActivity {
         return true;
     }
 
+    // Auto-scan: every command on common NEC addresses (0x04 = the TV, skipped).
+    static final int[] SCAN_ADDRS = {0x00, 0x80, 0x01, 0x02, 0x40, 0x03, 0x10, 0x08};
+    static final int[][] SCAN = new int[SCAN_ADDRS.length * 256][];
+    static { int k = 0; for (int a : SCAN_ADDRS) for (int c = 0; c < 256; c++) SCAN[k++] = new int[]{a, ~a & 0xFF, c}; }
+
     void speakerPower() {
-        int i = prefs.getInt("powerCode", -1);
-        if (i < 0) { status.setText("Power code not found yet – tap 🔍 Find power code"); return; }
-        status.setText(sendCode(POWER_CODES[i]) ? "Sent speaker power ✓" : "No IR emitter");
+        String c = prefs.getString("powerCodeHex", "");
+        if (c.isEmpty()) { status.setText("Power code not found yet – use Quick find or Auto-scan"); return; }
+        String[] p = c.split(",");
+        status.setText(sendCode(new int[]{Integer.parseInt(p[0]), Integer.parseInt(p[1]), Integer.parseInt(p[2])}) ? "Sent speaker power ✓" : "No IR emitter");
+    }
+
+    void saveCode(int[] c) {
+        prefs.edit().putString("powerCodeHex", c[0] + "," + c[1] + "," + c[2]).apply();
+        status.setText(String.format("Saved power code %02X %02X %02X ✓", c[0], c[1], c[2]));
+    }
+
+    /** Sends a code every 300 ms; STOP drops into step-by-step from a few codes back (reaction time). */
+    void autoScan(int start) {
+        int[] i = {start};
+        Runnable[] tick = new Runnable[1];
+        android.app.AlertDialog d = new android.app.AlertDialog.Builder(this).setTitle("Scanning – point phone at the speaker")
+                .setMessage("Tap STOP the moment the speaker turns on/off.").setCancelable(false)
+                .setPositiveButton("STOP ✋", (x, w) -> { holdHandler.removeCallbacks(tick[0]); findCode(SCAN, Math.max(0, i[0] - 6)); })
+                .setNegativeButton("Cancel", (x, w) -> holdHandler.removeCallbacks(tick[0])).create();
+        tick[0] = () -> {
+            if (i[0] >= SCAN.length) { d.dismiss(); status.setText("Scan finished – no code found"); return; }
+            int[] c = SCAN[i[0]];
+            sendCode(c);
+            d.setMessage(String.format("Code %d / %d  (%02X-%02X)%nTap STOP the moment the speaker turns on/off.", i[0] + 1, SCAN.length, c[0], c[2]));
+            i[0]++;
+            holdHandler.postDelayed(tick[0], 300);
+        };
+        d.show();
+        holdHandler.post(tick[0]);
     }
 
     /** Sends one candidate, then asks whether the speaker reacted. */
-    void findCode(int i) {
-        if (i >= POWER_CODES.length) { status.setText("No common code worked – the Juke Bar uses its own code"); return; }
-        sendCode(POWER_CODES[i]);
-        new android.app.AlertDialog.Builder(this).setTitle("Code " + (i + 1) + " / " + POWER_CODES.length)
+    void findCode(int[][] codes, int i) {
+        if (i >= codes.length) { status.setText("No code worked – try Auto-scan"); return; }
+        sendCode(codes[i]);
+        new android.app.AlertDialog.Builder(this).setTitle("Code " + (i + 1) + " / " + codes.length)
                 .setMessage("Speaker turned on/off?").setCancelable(false)
-                .setPositiveButton("Worked ✓", (d, w) -> { prefs.edit().putInt("powerCode", i).apply(); status.setText("Saved power code " + (i + 1) + " ✓"); })
-                .setNeutralButton("Try again", (d, w) -> findCode(i))
-                .setNegativeButton("Next ▶", (d, w) -> findCode(i + 1)).show();
+                .setPositiveButton("Worked ✓", (d, w) -> saveCode(codes[i]))
+                .setNeutralButton("Try again", (d, w) -> findCode(codes, i))
+                .setNegativeButton("Next ▶", (d, w) -> findCode(codes, i + 1)).show();
     }
 
     void tvKey(String k) { status.setText(TvActivity.send(this, k) ? "Sent TV " + k + " ✓" : "No IR emitter"); }
